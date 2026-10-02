@@ -122,6 +122,19 @@ test("handler: birden çok etkinlikte sadece açılan için bildirim gönderir",
   assert.equal(sent[0].body.click, OTHER);
 });
 
+test("handler: bir etkinlik hata verse de diğerleri için bildirim gönderir", async () => {
+  process.env.EVENT_URLS = `${FJORD}, ${OTHER}`;
+  passoResponses["13138330"] = { value: null }; // ör. gösterim geçmiş, arşive taşınmış
+  passoResponses["13341319"] = passoEvent(13341319, true);
+  const { status, body } = await call();
+  assert.equal(status, 502);
+  assert.match(body.error, /Etkinlik bulunamadı/);
+  assert.match(body.results[0].error, /Etkinlik bulunamadı/);
+  assert.equal(body.results[1].available, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body.click, OTHER);
+});
+
 test("handler: Telegram ayarlıysa oraya da gönderir", async () => {
   process.env.TELEGRAM_BOT_TOKEN = "123:abc";
   process.env.TELEGRAM_CHAT_ID = "42";

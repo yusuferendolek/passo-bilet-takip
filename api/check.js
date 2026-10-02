@@ -118,7 +118,11 @@ export default async function handler(req, res) {
       .filter(Boolean)
       .map(parseEventUrl);
 
-    const results = await Promise.all(events.map(checkEvent));
+    // Bir etkinliğin hatası (ör. geçmiş gösterim arşive taşındı) diğerlerinin bildirimini engellemesin
+    const settled = await Promise.allSettled(events.map(checkEvent));
+    const results = settled.map((s, i) =>
+      s.status === "fulfilled" ? s.value : { ...events[i], error: String(s.reason?.message || s.reason) }
+    );
 
     for (const r of results.filter((r) => r.available)) {
       // Passo saatleri zaten Türkiye saati, saat dilimi dönüşümü yapmadan göster
@@ -128,7 +132,10 @@ export default async function handler(req, res) {
     }
 
     res.setHeader("Cache-Control", "no-store");
-    return res.json({ checkedAt: new Date().toISOString(), results });
+    const failed = results.filter((r) => r.error);
+    return res
+      .status(failed.length ? 502 : 200)
+      .json({ checkedAt: new Date().toISOString(), results, ...(failed.length && { error: failed.map((r) => r.error).join("; ") }) });
   } catch (err) {
     // 5xx dönünce cron-job.org hatayı görür ve (ayarlıysa) e-posta atar
     return res.status(502).json({ error: String(err.message || err) });
