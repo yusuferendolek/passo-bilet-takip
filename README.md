@@ -77,6 +77,16 @@ Vercel'in ücretsiz planı cron'u günde yalnızca 1 kez çalıştırır, o yüz
 3. Sıklık: her 1 dakika.
 4. **Notifications** kısmından "job fails" için e-posta bildirimini aç.
 
+## Son tarih
+`EVENT_URLS` içindeki her linkin yanına `|` ile bir son tarih (Türkiye saati) yazılabilir:
+
+```
+https://www.passo.com.tr/tr/etkinlik/.../13157320|2026-10-09T16:00, https://www.passo.com.tr/tr/etkinlik/.../13138330|2026-10-18T21:30
+```
+
+Son tarihi geçen gösterim Passo'ya hiç sorulmaz. Böylece arşive taşınan geçmiş gösterimler hata vermez.
+Son tarih yazılmasa da, Passo'daki gösterim saati geçmiş bir etkinlik için bildirim gönderilmez.
+
 ## Notlar
 - Bilet açık olduğu sürece her kontrolde bildirim gelir (bilet kaçmasın diye bilerek böyle). Bileti aldıktan sonra cron-job.org'da işi durdur.
 - Telegram tercih edersen `TELEGRAM_BOT_TOKEN` ve `TELEGRAM_CHAT_ID` ekleyebilirsin.

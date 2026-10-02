@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import handler, { parseEventUrl, checkEvent } from "../api/check.js";
+import handler, { parseEventUrl, checkEvent, hasPassed } from "../api/check.js";
 
 const FJORD = "https://www.passo.com.tr/tr/etkinlik/fjord-iksv-filmekimi-citys7-film-biletleri/13138330";
 const OTHER = "https://www.passo.com.tr/tr/etkinlik/ideal-koca-iksv-filmekimi-paribu-art-film-biletleri/13341319";
@@ -9,9 +9,9 @@ const realFetch = globalThis.fetch;
 let passoResponses; // id -> yanıt gövdesi (string ya da obje)
 let sent; // ntfy/telegram'a giden istekler
 
-function passoEvent(id, isAvailable) {
+function passoEvent(id, isAvailable, date = "2099-10-18T21:30:00") {
   return {
-    value: { id, name: `Film ${id}`, date: "2026-10-18T21:30:00", venueName: "Salon", isAvailable },
+    value: { id, name: `Film ${id}`, date, venueName: "Salon", isAvailable },
   };
 }
 
@@ -75,6 +75,26 @@ test("parseEventUrl: Passo etkinlik linki değilse hata verir", () => {
   assert.throws(() => parseEventUrl("https://example.com/foo"), /Geçersiz Passo linki/);
 });
 
+test("parseEventUrl: | ile verilen son tarihi okur", () => {
+  assert.deepEqual(parseEventUrl(`${FJORD} | 2026-10-18T21:30`), {
+    url: FJORD,
+    slug: "fjord-iksv-filmekimi-citys7-film-biletleri",
+    id: "13138330",
+    deadline: "2026-10-18T21:30",
+  });
+});
+
+test("parseEventUrl: geçersiz son tarihte hata verir", () => {
+  assert.throws(() => parseEventUrl(`${FJORD}|yarın`), /Geçersiz son tarih/);
+});
+
+test("hasPassed: Passo tarihini Türkiye saati (UTC+3) olarak yorumlar", () => {
+  // 21:30 TR = 18:30 UTC
+  assert.equal(hasPassed("2026-10-18T21:30", new Date("2026-10-18T18:29:00Z")), false);
+  assert.equal(hasPassed("2026-10-18T21:30", new Date("2026-10-18T18:30:00Z")), true);
+  assert.equal(hasPassed("2026-10-18T21:30:00", new Date("2026-10-18T18:31:00Z")), true);
+});
+
 test("checkEvent: isAvailable alanını okur", async () => {
   passoResponses["13138330"] = passoEvent(13138330, false);
   const r = await checkEvent(parseEventUrl(FJORD));
@@ -108,7 +128,7 @@ test("handler: bilet açıldıysa ntfy bildirimi gönderir", async () => {
   assert.equal(sent[0].url, "https://ntfy.sh");
   assert.equal(sent[0].body.topic, "test-topic");
   assert.match(sent[0].body.title, /Bilet açıldı: Film 13138330/);
-  assert.equal(sent[0].body.message, "Salon · 18.10.2026 21:30");
+  assert.equal(sent[0].body.message, "Salon · 18.10.2099 21:30");
   assert.equal(sent[0].body.click, FJORD);
 });
 
@@ -154,6 +174,25 @@ test("handler: bir kanal hata verse de diğer kanal ve diğer etkinlikler için 
   assert.equal(whatsapp.length, 2);
 });
 
+test("handler: son tarihi geçen etkinliği Passo'ya sormaz, hata vermez", async () => {
+  process.env.EVENT_URLS = `${FJORD}|2000-01-01T00:00, ${OTHER}|2099-01-01T00:00`;
+  // FJORD için Passo yanıtı yok: sorulsaydı "JSON dönmedi" hatası verirdi
+  passoResponses["13341319"] = passoEvent(13341319, true);
+  const { status, body } = await call();
+  assert.equal(status, 200);
+  assert.equal(body.results.find((r) => r.id === "13138330").expired, true);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].body.click, OTHER);
+});
+
+test("handler: son tarih verilmese de gösterim saati geçtiyse bildirim göndermez", async () => {
+  passoResponses["13138330"] = passoEvent(13138330, true, "2000-01-01T21:30:00");
+  const { status, body } = await call();
+  assert.equal(status, 200);
+  assert.equal(body.results[0].expired, true);
+  assert.equal(sent.length, 0);
+});
+
 test("handler: Telegram ayarlıysa oraya da gönderir", async () => {
   process.env.TELEGRAM_BOT_TOKEN = "123:abc";
   process.env.TELEGRAM_CHAT_ID = "42";
@@ -173,7 +212,7 @@ test("handler: WhatsApp (CallMeBot) ayarlıysa oraya da gönderir", async () => 
   const wa = new URL(sent.find((s) => s.url.startsWith("https://api.callmebot.com/whatsapp.php")).url);
   assert.equal(wa.searchParams.get("phone"), "+905551112233");
   assert.equal(wa.searchParams.get("apikey"), "999");
-  assert.equal(wa.searchParams.get("text"), `*🎟️ Bilet açıldı: Film 13138330*\nSalon · 18.10.2026 21:30\n${FJORD}`);
+  assert.equal(wa.searchParams.get("text"), `*🎟️ Bilet açıldı: Film 13138330*\nSalon · 18.10.2099 21:30\n${FJORD}`);
 });
 
 test("handler: CallMeBot geçersiz API key (203) dönerse 502 döner", async () => {

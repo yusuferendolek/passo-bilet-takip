@@ -7,10 +7,20 @@ const LANG_TR = 118;
 const DEFAULT_EVENTS =
   "https://www.passo.com.tr/tr/etkinlik/fjord-iksv-filmekimi-citys7-film-biletleri/13138330";
 
-export function parseEventUrl(url) {
+// Passo tarihleri saat dilimi içermeyen Türkiye saati; Türkiye 2016'dan beri sabit UTC+3
+export function hasPassed(passoDate, now = new Date()) {
+  return new Date(`${passoDate}+03:00`) <= now;
+}
+
+// Girdi: "<passo linki>" ya da "<passo linki>|<son tarih, ör. 2026-10-09T16:00>"
+export function parseEventUrl(entry) {
+  const [url, deadline] = entry.split("|").map((s) => s.trim());
   const m = url.match(/etkinlik\/([^/?#]+)\/(\d+)/);
   if (!m) throw new Error(`Geçersiz Passo linki: ${url}`);
-  return { url, slug: m[1], id: m[2] };
+  if (deadline && Number.isNaN(new Date(`${deadline}+03:00`).getTime())) {
+    throw new Error(`Geçersiz son tarih: ${deadline}`);
+  }
+  return { url, slug: m[1], id: m[2], ...(deadline && { deadline }) };
 }
 
 export async function checkEvent(event) {
@@ -118,15 +128,23 @@ export default async function handler(req, res) {
       .filter(Boolean)
       .map(parseEventUrl);
 
-    // Bir etkinliğin hatası (ör. geçmiş gösterim arşive taşındı) diğerlerinin bildirimini engellemesin
-    const settled = await Promise.allSettled(events.map(checkEvent));
+    // Son tarihi geçenleri Passo'ya hiç sorma: geçmiş gösterimler arşive taşınınca hata verir
+    const now = new Date();
+    const expired = events.filter((e) => e.deadline && hasPassed(e.deadline, now));
+    const active = events.filter((e) => !expired.includes(e));
+
+    // Bir etkinliğin hatası diğerlerinin bildirimini engellemesin
+    const settled = await Promise.allSettled(active.map(checkEvent));
     const results = settled.map((s, i) =>
-      s.status === "fulfilled" ? s.value : { ...events[i], error: String(s.reason?.message || s.reason) }
+      s.status === "fulfilled" ? s.value : { ...active[i], error: String(s.reason?.message || s.reason) }
     );
+    // Son tarih verilmemişse bile gösterim saati geçtiyse bildirim gönderme
+    for (const r of results) if (r.date && hasPassed(r.date, now)) r.expired = true;
+    results.push(...expired.map((e) => ({ ...e, expired: true })));
 
     const errors = results.filter((r) => r.error).map((r) => r.error);
 
-    for (const r of results.filter((r) => r.available)) {
+    for (const r of results.filter((r) => r.available && !r.expired)) {
       // Passo saatleri zaten Türkiye saati, saat dilimi dönüşümü yapmadan göster
       const [d, t] = r.date.split("T");
       const when = `${d.split("-").reverse().join(".")} ${t.slice(0, 5)}`;
