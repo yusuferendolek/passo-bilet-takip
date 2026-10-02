@@ -144,6 +144,20 @@ test("handler: WhatsApp (CallMeBot) ayarlıysa oraya da gönderir", async () => 
   assert.equal(wa.searchParams.get("text"), `*🎟️ Bilet açıldı: Film 13138330*\nSalon · 18.10.2026 21:30\n${FJORD}`);
 });
 
+test("handler: CallMeBot geçersiz API key (203) dönerse 502 döner", async () => {
+  process.env.WHATSAPP_PHONE = "+905551112233";
+  process.env.CALLMEBOT_APIKEY = "000";
+  passoResponses["13138330"] = passoEvent(13138330, true);
+  const fetchMock = globalThis.fetch;
+  globalThis.fetch = async (url, opts) =>
+    String(url).startsWith("https://api.callmebot.com/")
+      ? new Response("APIKey is invalid. Please create a new one", { status: 203 })
+      : fetchMock(url, opts);
+  const { status, body } = await call();
+  assert.equal(status, 502);
+  assert.match(body.error, /APIKey is invalid/);
+});
+
 test("handler: sadece WhatsApp ayarlıysa da çalışır", async () => {
   delete process.env.NTFY_TOPIC;
   process.env.WHATSAPP_PHONE = "+905551112233";

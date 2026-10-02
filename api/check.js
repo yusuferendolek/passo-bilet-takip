@@ -82,7 +82,14 @@ export async function notify(title, message, clickUrl) {
       apikey: process.env.CALLMEBOT_APIKEY,
       text: `*${title}*\n${message}\n${clickUrl}`,
     });
-    jobs.push(fetch(`https://api.callmebot.com/whatsapp.php?${params}`));
+    jobs.push(
+      fetch(`https://api.callmebot.com/whatsapp.php?${params}`).then(async (r) => {
+        // CallMeBot hataları (ör. geçersiz API key) 203 ile döndürür; fetch bunu "ok" sayar
+        const text = await r.text();
+        const ok = r.status === 200 && !/invalid|error/i.test(text);
+        return new Response(text, { status: ok ? 200 : 502 });
+      })
+    );
   }
 
   if (jobs.length === 0) {
