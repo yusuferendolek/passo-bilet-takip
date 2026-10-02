@@ -75,7 +75,19 @@ export async function notify(title, message, clickUrl) {
     );
   }
 
-  if (jobs.length === 0) throw new Error("Bildirim kanalı yok: NTFY_TOPIC veya TELEGRAM_* ayarla");
+  // CallMeBot: kişisel kullanım için ücretsiz WhatsApp API'si (https://www.callmebot.com)
+  if (process.env.WHATSAPP_PHONE && process.env.CALLMEBOT_APIKEY) {
+    const params = new URLSearchParams({
+      phone: process.env.WHATSAPP_PHONE,
+      apikey: process.env.CALLMEBOT_APIKEY,
+      text: `*${title}*\n${message}\n${clickUrl}`,
+    });
+    jobs.push(fetch(`https://api.callmebot.com/whatsapp.php?${params}`));
+  }
+
+  if (jobs.length === 0) {
+    throw new Error("Bildirim kanalı yok: NTFY_TOPIC, TELEGRAM_* veya WHATSAPP_PHONE + CALLMEBOT_APIKEY ayarla");
+  }
   for (const r of await Promise.all(jobs)) {
     if (!r.ok) throw new Error(`Bildirim gönderilemedi (HTTP ${r.status}): ${(await r.text()).slice(0, 120)}`);
   }

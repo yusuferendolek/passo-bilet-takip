@@ -21,17 +21,19 @@ beforeEach(() => {
   process.env.NTFY_TOPIC = "test-topic";
   delete process.env.TELEGRAM_BOT_TOKEN;
   delete process.env.TELEGRAM_CHAT_ID;
+  delete process.env.WHATSAPP_PHONE;
+  delete process.env.CALLMEBOT_APIKEY;
   delete process.env.CRON_SECRET;
   delete process.env.EVENT_URLS;
 
   globalThis.fetch = async (url, opts = {}) => {
     url = String(url);
-    if (url.includes("passo.com.tr")) {
+    if (url.startsWith("https://ticketingweb.passo.com.tr/")) {
       const id = url.match(/\/(\d+)\/\d+$/)[1];
       const body = passoResponses[id] ?? "";
       return new Response(typeof body === "string" ? body : JSON.stringify(body), { status: 200 });
     }
-    sent.push({ url, body: JSON.parse(opts.body) });
+    sent.push({ url, body: opts.body ? JSON.parse(opts.body) : null });
     return new Response("{}", { status: 200 });
   };
 });
@@ -128,6 +130,28 @@ test("handler: Telegram ayarlıysa oraya da gönderir", async () => {
   assert.equal(sent.length, 2);
   const tg = sent.find((s) => s.url.includes("api.telegram.org/bot123:abc/sendMessage"));
   assert.equal(tg.body.chat_id, "42");
+});
+
+test("handler: WhatsApp (CallMeBot) ayarlıysa oraya da gönderir", async () => {
+  process.env.WHATSAPP_PHONE = "+905551112233";
+  process.env.CALLMEBOT_APIKEY = "999";
+  passoResponses["13138330"] = passoEvent(13138330, true);
+  await call();
+  assert.equal(sent.length, 2);
+  const wa = new URL(sent.find((s) => s.url.startsWith("https://api.callmebot.com/whatsapp.php")).url);
+  assert.equal(wa.searchParams.get("phone"), "+905551112233");
+  assert.equal(wa.searchParams.get("apikey"), "999");
+  assert.equal(wa.searchParams.get("text"), `*🎟️ Bilet açıldı: Film 13138330*\nSalon · 18.10.2026 21:30\n${FJORD}`);
+});
+
+test("handler: sadece WhatsApp ayarlıysa da çalışır", async () => {
+  delete process.env.NTFY_TOPIC;
+  process.env.WHATSAPP_PHONE = "+905551112233";
+  process.env.CALLMEBOT_APIKEY = "999";
+  passoResponses["13138330"] = passoEvent(13138330, true);
+  const { status } = await call();
+  assert.equal(status, 200);
+  assert.equal(sent.length, 1);
 });
 
 test("handler: CRON_SECRET yanlışsa 401 döner", async () => {

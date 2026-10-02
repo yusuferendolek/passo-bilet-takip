@@ -80,3 +80,17 @@ Vercel'in ücretsiz planı cron'u günde yalnızca 1 kez çalıştırır, o yüz
 ## Notlar
 - Bilet açık olduğu sürece her kontrolde bildirim gelir (bilet kaçmasın diye bilerek böyle). Bileti aldıktan sonra cron-job.org'da işi durdur.
 - Telegram tercih edersen `TELEGRAM_BOT_TOKEN` ve `TELEGRAM_CHAT_ID` ekleyebilirsin.
+
+## WhatsApp bildirimi (opsiyonel, ücretsiz)
+[CallMeBot](https://www.callmebot.com/blog/free-api-whatsapp-messages/) kişisel kullanım için ücretsiz WhatsApp mesajı gönderir. ntfy ile birlikte çalışır; ikisi de ayarlıysa ikisine de mesaj gider.
+
+1. CallMeBot sayfasındaki bot numarasını rehbere ekle.
+2. Bu numaraya WhatsApp'tan `I allow callmebot to send me messages` yaz.
+3. Gelen mesajdaki API anahtarını al ve Vercel'e ekle:
+```bash
+npx vercel env add WHATSAPP_PHONE production      # örn. +905551112233
+npx vercel env add CALLMEBOT_APIKEY production
+```
+4. Yeni değişkenlerin devreye girmesi için Actions'tan iş akışını yeniden çalıştır (`gh workflow run ci.yml`).
+
+Not: CallMeBot üçüncü taraf, gayriresmî bir servis; mesajlar onun üzerinden geçer ve zaman zaman gecikebilir. Bu yüzden ntfy'ı yedek olarak açık tut.
