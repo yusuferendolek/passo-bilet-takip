@@ -135,6 +135,25 @@ test("handler: bir etkinlik hata verse de diğerleri için bildirim gönderir", 
   assert.equal(sent[0].body.click, OTHER);
 });
 
+test("handler: bir kanal hata verse de diğer kanal ve diğer etkinlikler için gönderir", async () => {
+  process.env.EVENT_URLS = `${FJORD}, ${OTHER}`;
+  process.env.WHATSAPP_PHONE = "+905551112233";
+  process.env.CALLMEBOT_APIKEY = "999";
+  passoResponses["13138330"] = passoEvent(13138330, true);
+  passoResponses["13341319"] = passoEvent(13341319, true);
+  const fetchMock = globalThis.fetch;
+  globalThis.fetch = async (url, opts) =>
+    String(url) === "https://ntfy.sh"
+      ? new Response("daily message quota reached", { status: 429 })
+      : fetchMock(url, opts);
+  const { status, body } = await call();
+  assert.equal(status, 502);
+  assert.match(body.error, /Film 13138330 bildirimi: .*429/);
+  assert.match(body.error, /Film 13341319 bildirimi: .*429/);
+  const whatsapp = sent.filter((s) => s.url.startsWith("https://api.callmebot.com/"));
+  assert.equal(whatsapp.length, 2);
+});
+
 test("handler: Telegram ayarlıysa oraya da gönderir", async () => {
   process.env.TELEGRAM_BOT_TOKEN = "123:abc";
   process.env.TELEGRAM_CHAT_ID = "42";

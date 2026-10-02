@@ -124,18 +124,24 @@ export default async function handler(req, res) {
       s.status === "fulfilled" ? s.value : { ...events[i], error: String(s.reason?.message || s.reason) }
     );
 
+    const errors = results.filter((r) => r.error).map((r) => r.error);
+
     for (const r of results.filter((r) => r.available)) {
       // Passo saatleri zaten Türkiye saati, saat dilimi dönüşümü yapmadan göster
       const [d, t] = r.date.split("T");
       const when = `${d.split("-").reverse().join(".")} ${t.slice(0, 5)}`;
-      await notify(`🎟️ Bilet açıldı: ${r.name}`, `${r.venue} · ${when}`, r.url);
+      // Bir bildirimin hatası sonraki etkinliklerin bildirimini engellemesin
+      try {
+        await notify(`🎟️ Bilet açıldı: ${r.name}`, `${r.venue} · ${when}`, r.url);
+      } catch (err) {
+        errors.push(`${r.name} bildirimi: ${err.message || err}`);
+      }
     }
 
     res.setHeader("Cache-Control", "no-store");
-    const failed = results.filter((r) => r.error);
     return res
-      .status(failed.length ? 502 : 200)
-      .json({ checkedAt: new Date().toISOString(), results, ...(failed.length && { error: failed.map((r) => r.error).join("; ") }) });
+      .status(errors.length ? 502 : 200)
+      .json({ checkedAt: new Date().toISOString(), results, ...(errors.length && { error: errors.join("; ") }) });
   } catch (err) {
     // 5xx dönünce cron-job.org hatayı görür ve (ayarlıysa) e-posta atar
     return res.status(502).json({ error: String(err.message || err) });
