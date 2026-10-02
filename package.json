@@ -1,0 +1,12 @@
+{
+  "name": "passo-bilet-takip",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/check.test.js",
+    "test:live": "node --test test/live.test.js"
+  }
+}
