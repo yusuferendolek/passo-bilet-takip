@@ -34,7 +34,7 @@ jobs:
     name: Vercel'e deploy
     # Canlı teste bağlı değil: Passo GitHub sunucularını engellese bile deploy yapılabilsin
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
