@@ -52,7 +52,7 @@ export async function checkEvent(event) {
   };
 }
 
-export async function notify(title, message, clickUrl) {
+export async function notify(title, message, clickUrl, actions) {
   const jobs = [];
 
   if (process.env.NTFY_TOPIC) {
@@ -67,6 +67,7 @@ export async function notify(title, message, clickUrl) {
           priority: 5,
           tags: ["tickets"],
           click: clickUrl,
+          ...(actions && { actions }),
         }),
       })
     );
@@ -110,6 +111,18 @@ export async function notify(title, message, clickUrl) {
   }
 }
 
+// cron-job.org API'siyle zamanlayıcı işini kapatır; bilet alındıktan sonra bildirimler kesilir
+export async function stopCron() {
+  const { CRONJOB_API_KEY, CRONJOB_JOB_ID } = process.env;
+  if (!CRONJOB_API_KEY || !CRONJOB_JOB_ID) throw new Error("CRONJOB_API_KEY ve CRONJOB_JOB_ID ayarlı değil");
+  const res = await fetch(`https://api.cron-job.org/jobs/${CRONJOB_JOB_ID}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${CRONJOB_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ job: { enabled: false } }),
+  });
+  if (!res.ok) throw new Error(`cron-job.org işi durdurulamadı (HTTP ${res.status}): ${(await res.text()).slice(0, 120)}`);
+}
+
 export default async function handler(req, res) {
   const secret = process.env.CRON_SECRET;
   if (secret && req.query.key !== secret && req.headers.authorization !== `Bearer ${secret}`) {
@@ -120,6 +133,17 @@ export default async function handler(req, res) {
     if (req.query.test) {
       await notify("Test bildirimi", "Passo bilet takipçisi çalışıyor.", "https://www.passo.com.tr");
       return res.json({ test: "sent" });
+    }
+
+    if (req.query.stop) {
+      // Link önizlemeleri gibi kazara GET istekleri takibi kapatmasın
+      if (req.method !== "POST") return res.status(405).json({ error: "stop için POST gerekli" });
+      await stopCron();
+      // Takip durdu; onay bildirimi gidemese bile isteği başarılı say
+      try {
+        await notify("⏹️ Takip durduruldu", "Bildirimler kesildi. Yeniden başlatmak için cron-job.org'da işi aç.", "https://console.cron-job.org/jobs");
+      } catch {}
+      return res.json({ stopped: true });
     }
 
     const events = (process.env.EVENT_URLS || DEFAULT_EVENTS)
@@ -144,13 +168,28 @@ export default async function handler(req, res) {
 
     const errors = results.filter((r) => r.error).map((r) => r.error);
 
+    // ntfy bildirimine "Bileti aldım" butonu: basınca ?stop=1 ile cron işi kapanır
+    const actions =
+      process.env.CRONJOB_API_KEY && process.env.CRONJOB_JOB_ID
+        ? [
+            {
+              action: "http",
+              label: "Bileti aldım, durdur",
+              url: `https://${req.headers.host}/api/check?stop=1`,
+              method: "POST",
+              ...(secret && { headers: { Authorization: `Bearer ${secret}` } }),
+              clear: true,
+            },
+          ]
+        : undefined;
+
     for (const r of results.filter((r) => r.available && !r.expired)) {
       // Passo saatleri zaten Türkiye saati, saat dilimi dönüşümü yapmadan göster
       const [d, t] = r.date.split("T");
       const when = `${d.split("-").reverse().join(".")} ${t.slice(0, 5)}`;
       // Bir bildirimin hatası sonraki etkinliklerin bildirimini engellemesin
       try {
-        await notify(`🎟️ Bilet açıldı: ${r.name}`, `${r.venue} · ${when}`, r.url);
+        await notify(`🎟️ Bilet açıldı: ${r.name}`, `${r.venue} · ${when}`, r.url, actions);
       } catch (err) {
         errors.push(`${r.name} bildirimi: ${err.message || err}`);
       }

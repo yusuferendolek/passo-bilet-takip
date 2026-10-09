@@ -25,6 +25,8 @@ beforeEach(() => {
   delete process.env.CALLMEBOT_APIKEY;
   delete process.env.CRON_SECRET;
   delete process.env.EVENT_URLS;
+  delete process.env.CRONJOB_API_KEY;
+  delete process.env.CRONJOB_JOB_ID;
 
   globalThis.fetch = async (url, opts = {}) => {
     url = String(url);
@@ -33,7 +35,7 @@ beforeEach(() => {
       const body = passoResponses[id] ?? "";
       return new Response(typeof body === "string" ? body : JSON.stringify(body), { status: 200 });
     }
-    sent.push({ url, body: opts.body ? JSON.parse(opts.body) : null });
+    sent.push({ url, method: opts.method, headers: opts.headers, body: opts.body ? JSON.parse(opts.body) : null });
     return new Response("{}", { status: 200 });
   };
 });
@@ -42,7 +44,7 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-function call(query = {}, headers = {}) {
+function call(query = {}, headers = {}, method = "GET") {
   return new Promise((resolve) => {
     const res = {
       statusCode: 200,
@@ -55,7 +57,7 @@ function call(query = {}, headers = {}) {
         resolve({ status: this.statusCode, body });
       },
     };
-    handler({ query, headers }, res);
+    handler({ method, query, headers: { host: "takip.example", ...headers } }, res);
   });
 }
 
@@ -130,6 +132,25 @@ test("handler: bilet açıldıysa ntfy bildirimi gönderir", async () => {
   assert.match(sent[0].body.title, /Bilet açıldı: Film 13138330/);
   assert.equal(sent[0].body.message, "Salon · 18.10.2099 21:30");
   assert.equal(sent[0].body.click, FJORD);
+  assert.equal(sent[0].body.actions, undefined);
+});
+
+test("handler: cron-job.org ayarlıysa bildirime 'Bileti aldım' butonu ekler", async () => {
+  process.env.CRON_SECRET = "gizli";
+  process.env.CRONJOB_API_KEY = "cj-key";
+  process.env.CRONJOB_JOB_ID = "42";
+  passoResponses["13138330"] = passoEvent(13138330, true);
+  await call({ key: "gizli" });
+  assert.deepEqual(sent[0].body.actions, [
+    {
+      action: "http",
+      label: "Bileti aldım, durdur",
+      url: "https://takip.example/api/check?stop=1",
+      method: "POST",
+      headers: { Authorization: "Bearer gizli" },
+      clear: true,
+    },
+  ]);
 });
 
 test("handler: birden çok etkinlikte sadece açılan için bildirim gönderir", async () => {
@@ -271,4 +292,54 @@ test("handler: bildirim kanalı yoksa bilet açıkken 502 döner", async () => {
   const { status, body } = await call();
   assert.equal(status, 502);
   assert.match(body.error, /Bildirim kanalı yok/);
+});
+
+test("handler: stop=1 cron-job.org işini kapatır ve onay bildirimi gönderir", async () => {
+  process.env.CRON_SECRET = "gizli";
+  process.env.CRONJOB_API_KEY = "cj-key";
+  process.env.CRONJOB_JOB_ID = "42";
+  const { status, body } = await call({ stop: "1" }, { authorization: "Bearer gizli" }, "POST");
+  assert.equal(status, 200);
+  assert.deepEqual(body, { stopped: true });
+  const cj = sent.find((s) => s.url === "https://api.cron-job.org/jobs/42");
+  assert.equal(cj.method, "PATCH");
+  assert.equal(cj.headers.Authorization, "Bearer cj-key");
+  assert.deepEqual(cj.body, { job: { enabled: false } });
+  assert.match(sent.find((s) => s.url === "https://ntfy.sh").body.title, /Takip durduruldu/);
+});
+
+test("handler: stop=1 GET ile gelirse işi kapatmaz", async () => {
+  process.env.CRONJOB_API_KEY = "cj-key";
+  process.env.CRONJOB_JOB_ID = "42";
+  const { status } = await call({ stop: "1" });
+  assert.equal(status, 405);
+  assert.equal(sent.length, 0);
+});
+
+test("handler: stop=1 şifresiz gelirse 401 döner", async () => {
+  process.env.CRON_SECRET = "gizli";
+  process.env.CRONJOB_API_KEY = "cj-key";
+  process.env.CRONJOB_JOB_ID = "42";
+  const { status } = await call({ stop: "1" }, {}, "POST");
+  assert.equal(status, 401);
+  assert.equal(sent.length, 0);
+});
+
+test("handler: cron-job.org hata verirse 502 döner", async () => {
+  process.env.CRONJOB_API_KEY = "yanlis";
+  process.env.CRONJOB_JOB_ID = "42";
+  const fetchMock = globalThis.fetch;
+  globalThis.fetch = async (url, opts) =>
+    String(url).startsWith("https://api.cron-job.org/")
+      ? new Response("Unauthorized", { status: 401 })
+      : fetchMock(url, opts);
+  const { status, body } = await call({ stop: "1" }, {}, "POST");
+  assert.equal(status, 502);
+  assert.match(body.error, /durdurulamadı \(HTTP 401\)/);
+});
+
+test("handler: cron-job.org ayarlı değilse stop=1 hata verir", async () => {
+  const { status, body } = await call({ stop: "1" }, {}, "POST");
+  assert.equal(status, 502);
+  assert.match(body.error, /CRONJOB_API_KEY/);
 });

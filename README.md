@@ -88,7 +88,7 @@ Son tarihi geçen gösterim Passo'ya hiç sorulmaz. Böylece arşive taşınan g
 Son tarih yazılmasa da, Passo'daki gösterim saati geçmiş bir etkinlik için bildirim gönderilmez.
 
 ## Notlar
-- Bilet açık olduğu sürece her kontrolde bildirim gelir (bilet kaçmasın diye bilerek böyle). Bileti aldıktan sonra cron-job.org'da işi durdur.
+- Bilet açık olduğu sürece her kontrolde bildirim gelir (bilet kaçmasın diye bilerek böyle). Bileti aldıktan sonra ntfy bildirimindeki **"Bileti aldım, durdur"** butonuna bas (aşağıya bak) ya da cron-job.org'da işi elle durdur.
 - Telegram tercih edersen `TELEGRAM_BOT_TOKEN` ve `TELEGRAM_CHAT_ID` ekleyebilirsin.
 
 ## WhatsApp bildirimi (opsiyonel, ücretsiz)
@@ -104,3 +104,17 @@ npx vercel env add CALLMEBOT_APIKEY production
 4. Yeni değişkenlerin devreye girmesi için Actions'tan iş akışını yeniden çalıştır (`gh workflow run ci.yml`).
 
 Not: CallMeBot üçüncü taraf, gayriresmî bir servis; mesajlar onun üzerinden geçer ve zaman zaman gecikebilir. Bu yüzden ntfy'ı yedek olarak açık tut.
+
+## "Bileti aldım" butonu (opsiyonel)
+ntfy bildirimine bir buton eklenir. Basınca fonksiyon cron-job.org API'siyle zamanlayıcı işini kapatır, bildirimler kesilir ve "Takip durduruldu" onayı gelir.
+
+1. cron-job.org → **Settings** → **API** kısmından bir API anahtarı oluştur.
+2. İşin ID'sini bul (işi düzenleme sayfasının adresindeki sayı, ya da `curl -H "Authorization: Bearer <anahtar>" https://api.cron-job.org/jobs`).
+3. Vercel'e ekle ve yeniden deploy et:
+```bash
+npx vercel env add CRONJOB_API_KEY production
+npx vercel env add CRONJOB_JOB_ID production
+gh workflow run ci.yml
+```
+
+Takibi yeniden başlatmak için cron-job.org'da işi tekrar aç. WhatsApp mesajlarında buton yok, ama iş kapanınca onlar da kesilir.
